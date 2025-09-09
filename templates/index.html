@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <!-- Flatpickr CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+
+<!-- Flatpickr JS -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+
+<!-- Chart.js for Gantt diagram -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+
+<meta charset="utf-8">
+<title>Kanban</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/index_style.css') }}">
+</head>
+<body>
+
+<a class="logout" href="/logout">🚪 Logout</a>
+
+<!-- Flash messages -->
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% if messages %}
+    <div class="flash-messages">
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+{% endwith %}
+
+<div class="top-bar">
+  <!-- Top bar menu View -->
+  <form id="select-view-form" action="/" method="get">
+    <label for="view">View:</label>
+    <select name="view" id="view" onchange="document.getElementById('select-view-form').submit()">
+      <option value="users" {% if view == 'users' %}selected{% endif %}>Users</option>
+      <option value="ad-hoc" {% if view == 'ad-hoc' %}selected{% endif %}>AD-HOC</option>
+      <option value="reg" {% if view == 'reg' %}selected{% endif %}>REG</option>
+      <option value="pro" {% if view == 'pro' %}selected{% endif %}>PRO</option>
+      <option value="vacation" {% if view == 'vacation' %}selected{% endif %}>Vacation</option>
+      <option value="backlog" {% if view == 'backlog' %}selected{% endif %}>Backlog</option>
+    </select>
+  </form>
+
+  {% if view != 'backlog' %}
+<!-- User menu -->
+<form id="select-user-form" action="/" method="get">
+    <input type="hidden" name="view" value="{{ view }}">
+    <label for="user">User:</label>
+    <select name="user" id="user" onchange="document.getElementById('select-user-form').submit()">
+        <option value="all" {% if selected_user == 'all' %}selected{% endif %}>All</option>
+        {% for user in users %}
+            <option value="{{ user }}" {% if user == selected_user %}selected{% endif %}>{{ user }}</option>
+        {% endfor %}
+    </select>
+</form>
+{% endif %}
+
+  <!-- Gantt diagram button -->
+{% if view == 'vacation' and selected_user == 'all' %}
+  <button onclick="openGanttModal()" style="background: #27ae60;">📊 Show Gantt diagram</button>
+{% endif %}
+
+
+{% if view == 'vacation' and selected_user != 'all' %}
+<form id="add_vacation" action="/add_vacation" method="post" style="display:flex; flex-direction:column; gap:10px; width:100%;">
+  <input type="hidden" name="user" value="{{ selected_user }}">
+
+  <div style="display:grid; grid-template-columns: repeat(5, 1fr); gap:10px; width:100%;">
+    <input type="date" name="start_date" required placeholder="Start Date">
+    <input type="date" name="end_date" required placeholder="End Date">
+    <input type="text" name="comment" placeholder="Comment">
+    <select name="status">
+      <option value="todo" selected>To Do</option>
+      <option value="in_progress">In Progress</option>
+      <option value="waiting">Waiting</option>
+      <option value="done">Done</option>
+    </select>
+    <button type="submit" style="width:100%;">Add Vacation</button>
+  </div>
+</form>
+{% endif %}
+
+
+  <!-- Delete/add user -->
+  {% if view == 'users' %}
+    <form action="/add_user" method="post">
+      <input type="text" name="username" placeholder="New user" required>
+      <button type="submit">Add</button>
+    </form>
+
+    {% if selected_user and selected_user != 'all' %}
+      <form action="/delete_user/{{ selected_user }}" method="get" onsubmit="return confirm('Delete user {{ selected_user }}?')">
+        <button type="submit">Delete</button>
+      </form>
+    {% endif %}
+  {% endif %}
+</div>
+
+<!-- Add task form -->
+{% if view == 'users' %}
+<form action="/add" method="post" style="display:flex; flex-direction:column; gap:10px; width:100%; display:none;" id="add-task-form">
+  <input type="hidden" name="view" value="{{ view }}">
+
+  <div style="display:grid; grid-template-columns: repeat(8, 1fr); gap:10px; width:100%;">
+    <input type="text" name="task_title" placeholder="Task title" required>
+
+    <select name="status">
+      <option value="todo" selected>To Do</option>
+      <option value="in_progress">In Progress</option>
+      <option value="waiting">Waiting</option>
+      <option value="done">Done</option>
+    </select>
+
+    <select name="type">
+      <option value="task" selected>Task</option>
+      <option value="ASAP">ASAP</option>
+    </select>
+
+    <select name="priority">
+      <option value="blocker">Blocker</option>
+      <option value="critical">Critical</option>
+      <option value="medium" selected>Medium</option>
+      <option value="low">Low</option>
+      <option value="minor">Minor</option>
+    </select>
+
+    <input type="date" name="start_date" value="{{ today }}">
+    <input type="date" name="deadline">
+
+    <input type="text" name="tags" placeholder="Tags (comma separated)">
+
+    <select name="task_type">
+      <option value="AD-HOC">AD-HOC</option>
+      <option value="REG">REG</option>
+      <option value="PRO">PRO</option>
+    </select>
+  </div>
+
+  <textarea name="comment" placeholder="Task comment"
+    rows="2"
+    style="padding:8px; border-radius:6px; box-sizing: border-box; border:1px solid #ccc; font-size:14px; width:100%; resize:vertical;"></textarea>
+
+  <input type="hidden" name="user" value="{{ selected_user }}">
+  <button type="submit" style="align-self:flex-start;">Add</button>
+</form>
+{% endif %}
+
+<!--Show tasks-->
+<div class="columns">
+  {% for col, title in [("todo","To Do"),("in_progress","In Progress"),("waiting","Waiting"),("done","Done")] %}
+    <div class="column">
+      <h2>{{ title }}</h2>
+      <ul>
+        {% for task in tasks.get(col, []) %}
+          {% if view == 'vacation' and task.is_vacation %}
+            <!-- Vacation-->
+            <li class="{{ col }} vacation-item {% if task.highlight %}highlight{% endif %}"
+                data-vacation='{{ task|tojson | safe }}'
+                onclick="openVacationSidebarFromLi(this, '{{ col }}')">
+              <div>
+                <strong>{{ task.title }}</strong>
+                <br>
+                <small>{{ task.date_range }}</small>
+                {% if task.comment %}
+                  <br>
+                  <small style="color: #666;">{{ task.comment }}</small>
+                {% endif %}
+              </div>
+            </li>
+
+          {% else %}
+            <!-- Simple view -->
+            <li class="{{ col }}" data-task='{{ task|tojson | safe }}' onclick="openSidebarFromLi(this, '{{ col }}')">
+              <div>
+                <span>{{ task.title }}</span>
+                <small class="days-in-status {{ col }}">Days in this status: {{ task.days_in_status }}</small>
+                {% if selected_user == "all" and view in ["reg", "ad-hoc", "pro", "backlog"] %}
+                  <small style="color:#555;">👤 {{ task.username }}</small>
+                {% endif %}
+              </div>
+            </li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+    </div>
+  {% endfor %}
+</div>
+
+
+<!-- Task sidebar -->
+<div id="task-sidebar" style="position:fixed; top:0; right:0; width:400px; height:100%; background:white;
+     box-shadow:-4px 0 12px rgba(0,0,0,0.2); padding:20px; transition:0.3s; overflow-y:auto; z-index:1000; display:none;">
+  <button onclick="closeSidebar()" style="float:right; background:#2980b9; color:white; border:none; border-radius:6px; padding:5px 10px; cursor:pointer;">❌</button>
+  <h2 id="sidebar-title" contenteditable="true">Task</h2>
+  <form id="sidebar-form" method="post" action="/edit_task">
+    <input type="hidden" name="view" id="sidebar-view" value="{{ view }}">
+    <input type="hidden" name="user" value="{{ selected_user }}">
+    <input type="hidden" name="col" id="sidebar-col">
+    <input type="hidden" name="task_id" id="sidebar-id">
+    <input type="hidden" name="title" id="sidebar-hidden-title">
+
+    <div style="display:grid; grid-template-columns:120px 1fr; row-gap:10px; column-gap:10px; align-items:center;">
+      <label>Status:</label>
+      <select name="status" id="sidebar-status">
+        <option value="todo">To Do</option>
+        <option value="in_progress">In Progress</option>
+        <option value="waiting">Waiting</option>
+        <option value="done">Done</option>
+      </select>
+
+      <label>Type:</label>
+      <select name="type" id="sidebar-type">
+        <option value="task">Task</option>
+        <option value="ASAP">ASAP</option>
+      </select>
+
+      <label>Priority:</label>
+      <select name="priority" id="sidebar-priority">
+        <option value="blocker">Blocker</option>
+        <option value="critical">Critical</option>
+        <option value="medium">Medium</option>
+        <option value="low">Low</option>
+        <option value="minor">Minor</option>
+      </select>
+
+      <label>Start date:</label>
+      <input type="date" name="start_date" id="sidebar-start-date">
+
+      <label>Deadline:</label>
+      <input type="date" name="deadline" id="sidebar-deadline">
+
+      <label>Tags:</label>
+      <input type="text" name="tags" id="sidebar-tags">
+
+      <label>Category:</label>
+      <select name="task_type" id="sidebar-task-type">
+        <option value="AD-HOC">AD-HOC</option>
+        <option value="REG">REG</option>
+        <option value="PRO">PRO</option>
+      </select>
+
+      <label>Comment:</label>
+      <textarea name="comment" id="sidebar-comment" rows="3"
+        style="padding:8px; border-radius:6px; border:1px solid #ccc; font-size:14px; background-color:#f0f0f0; width:100%;"></textarea>
+    </div>
+
+    <button type="submit" style="margin-top:20px; width:100%;">Save</button>
+  </form>
+
+  <form id="delete-task-form" method="post" action="/delete_task" style="margin-top:10px;">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="user" value="{{ selected_user }}">
+    <input type="hidden" name="task_id" id="delete-task-id">
+    <button type="submit" style="background:#e74c3c; color:white; width:100%; padding:8px 0; border-radius:6px; border:none; cursor:pointer;">Delete Task</button>
+  </form>
+</div>
+
+
+<!-- Vacation sidebar -->
+<div id="vacation-sidebar" style="position:fixed; top:0; right:0; width:400px; height:100%; background:white;
+     box-shadow:-4px 0 12px rgba(0,0,0,0.2); padding:20px; transition:0.3s; overflow-y:auto; z-index:1000; display:none;">
+  <button onclick="closeVacationSidebar()" style="float:right; background:#2980b9; color:white; border:none; border-radius:6px; padding:5px 10px; cursor:pointer;">❌</button>
+  <h2 id="vacation-sidebar-title"></h2>
+  <form id="vacation-sidebar-form" method="post" action="/edit_vacation">
+    <input type="hidden" name="vacation_id" id="vacation-id">
+<input type="hidden" name="user" id="vacation-user" value="{{ selected_user }}">
+
+    <div style="display:grid; grid-template-columns:120px 1fr; row-gap:10px; column-gap:10px; align-items:center;">
+      <label>Status:</label>
+      <select name="status" id="vacation-status">
+        <option value="todo">To Do</option>
+        <option value="in_progress">In Progress</option>
+        <option value="waiting">Waiting</option>
+        <option value="done">Done</option>
+      </select>
+
+      <label>Start date:</label>
+      <input type="date" name="start_date" id="vacation-start-date">
+
+      <label>End date:</label>
+      <input type="date" name="end_date" id="vacation-end-date">
+
+      <label>Comment:</label>
+      <textarea name="comment" id="vacation-comment" rows="3"
+        style="padding:8px; border-radius:6px; border:1px solid #ccc; font-size:14px; background-color:#f0f0f0; width:100%;"></textarea>
+    </div>
+
+    <button type="submit" style="margin-top:20px; width:100%;">Save</button>
+  </form>
+
+  <form id="delete-vacation-form" method="post" action="/delete_vacation" style="margin-top:10px;">
+    <input type="hidden" name="vacation_id" id="delete-vacation-id">
+    <input type="hidden" name="view" value="{{ view }}">
+    <input type="hidden" name="user" value="{{ selected_user }}">
+    <button type="submit" style="background:#e74c3c; color:white; width:100%; padding:8px 0; border-radius:6px; border:none; cursor:pointer;">Delete Vacation</button>
+  </form>
+</div>
+
+
+<!-- Gantt diagram window -->
+<div id="gantt-modal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeGanttModal()">&times;</span>
+    <h2>Vacations</h2>
+
+    <div class="gantt-controls">
+      <label for="gantt-start-date">Period start:</label>
+      <input type="date" id="gantt-start-date">
+
+      <label for="gantt-end-date">Period end:</label>
+      <input type="date" id="gantt-end-date">
+
+      <button onclick="updateGanttChart()">Renew</button>
+    </div>
+
+    <div id="gantt-chart-container">
+      <canvas id="gantt-chart"></canvas>
+    </div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/script.js') }}"></script>
+
+</body>
+</html>
