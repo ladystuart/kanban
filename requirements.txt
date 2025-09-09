@@ -1,0 +1,5 @@
+flask
+load_dotenv
+flask-sqlalchemy
+psycopg2-binary
+asyncpg
